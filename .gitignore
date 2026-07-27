@@ -1,4 +1,6 @@
 node_modules/
 uploads/
-database.sqlite
+*.db
 .env
+venv/
+__pycache__/
