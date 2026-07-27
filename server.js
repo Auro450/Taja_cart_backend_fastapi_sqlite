@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
@@ -30,13 +29,13 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
+const db = require('./db');
+
 // Database Setup
-const dbPath = path.resolve(__dirname, 'database.sqlite');
-const db = new sqlite3.Database(dbPath, (err) => {
+db.init((err) => {
   if (err) {
     console.error('Error opening database', err.message);
   } else {
-    console.log('Connected to the SQLite database.');
     
     // Customers Table
     db.run(`CREATE TABLE IF NOT EXISTS customers (
