@@ -47,6 +47,18 @@ const db = new sqlite3.Database(dbPath, (err) => {
       joinedDate TEXT
     )`);
 
+    // Saved Addresses Table
+    db.run(`CREATE TABLE IF NOT EXISTS saved_addresses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userEmail TEXT NOT NULL,
+      label TEXT NOT NULL,
+      address TEXT NOT NULL,
+      landmark TEXT,
+      lat REAL NOT NULL,
+      lng REAL NOT NULL,
+      FOREIGN KEY (userEmail) REFERENCES customers (email) ON DELETE CASCADE
+    )`);
+
     // Orders Table
     db.run(`CREATE TABLE IF NOT EXISTS orders (
       id TEXT PRIMARY KEY,
@@ -87,6 +99,99 @@ const db = new sqlite3.Database(dbPath, (err) => {
       rating REAL NOT NULL,
       image TEXT,
       FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE
+    )`);
+
+    // Deals of the Day Table
+    db.run(`CREATE TABLE IF NOT EXISTS deals_of_the_day (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      quantity TEXT NOT NULL,
+      currentPrice REAL NOT NULL,
+      cutPrice REAL NOT NULL,
+      rating REAL NOT NULL,
+      image TEXT
+    )`);
+
+    // Offers Table
+    db.run(`CREATE TABLE IF NOT EXISTS offers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      event_name TEXT NOT NULL,
+      discount_percent INTEGER NOT NULL,
+      valid_until TEXT NOT NULL
+    )`);
+
+    // Settings Table
+    db.run(`CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )`, () => {
+      // Initialize FIRST20 toggle if not exists
+      db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('FIRST20_ACTIVE', 'true')`);
+    });
+
+    // Hubs Table
+    db.run(`CREATE TABLE IF NOT EXISTS hubs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      lat REAL NOT NULL,
+      lng REAL NOT NULL,
+      radius_km REAL NOT NULL,
+      is_active BOOLEAN DEFAULT 1
+    )`);
+
+    // Announcements Table
+    db.run(`CREATE TABLE IF NOT EXISTS announcements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      text TEXT NOT NULL
+    )`, () => {
+      // Seed initial announcements
+      db.get('SELECT COUNT(*) as count FROM announcements', (err, row) => {
+        if (!err && row.count === 0) {
+          db.run(`INSERT INTO announcements (text) VALUES ('🎉 Free delivery above Rs 99/-')`);
+          db.run(`INSERT INTO announcements (text) VALUES ('⚡ Rs 10/- delivery charge below Rs 99/-')`);
+        }
+      });
+    });
+
+    // Reviews Table
+    db.run(`CREATE TABLE IF NOT EXISTS reviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_name TEXT NOT NULL,
+      rating INTEGER NOT NULL,
+      text TEXT,
+      is_featured BOOLEAN DEFAULT 0,
+      order_id TEXT UNIQUE
+    )`, () => {
+      // Migration: import existing reviews from orders
+      db.all('SELECT * FROM orders WHERE rating > 0', [], (err, rows) => {
+        if (err) return;
+        rows.forEach(order => {
+          try {
+            const details = JSON.parse(order.deliveryDetails);
+            const customerName = details.name || 'Anonymous';
+            db.run(
+              `INSERT OR IGNORE INTO reviews (customer_name, rating, text, is_featured, order_id) VALUES (?, ?, ?, ?, ?)`,
+              [customerName, order.rating, order.review, 0, order.id]
+            );
+          } catch(e) {}
+        });
+      });
+    });
+
+    // Banners Table
+    db.run(`CREATE TABLE IF NOT EXISTS banners (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      image TEXT NOT NULL,
+      is_approved BOOLEAN DEFAULT 0
+    )`);
+
+    // Notifications Table
+    db.run(`CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      text TEXT NOT NULL,
+      is_active BOOLEAN DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
     // Seed Data if empty
@@ -267,6 +372,39 @@ app.delete('/api/orders/:id', (req, res) => {
 
 // CUSTOMERS API ROUTES
 
+// SAVED ADDRESSES API ROUTES
+app.get('/api/addresses/:email', (req, res) => {
+  const { email } = req.params;
+  db.all('SELECT * FROM saved_addresses WHERE userEmail = ? ORDER BY id DESC', [email], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/addresses', (req, res) => {
+  const { userEmail, label, address, landmark, lat, lng } = req.body;
+  if (!userEmail || !label || !address || lat == null || lng == null) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  db.run(
+    `INSERT INTO saved_addresses (userEmail, label, address, landmark, lat, lng) VALUES (?, ?, ?, ?, ?, ?)`,
+    [userEmail, label, address, landmark, lat, lng],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.status(201).json({ message: 'Address saved successfully', id: this.lastID });
+    }
+  );
+});
+
+app.delete('/api/addresses/:id', (req, res) => {
+  const { id } = req.params;
+  db.run(`DELETE FROM saved_addresses WHERE id = ?`, [id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Address not found' });
+    res.json({ message: 'Address deleted successfully' });
+  });
+});
+
 // 5. Register or update customer
 app.post('/api/customers', (req, res) => {
   const { email, name, phone, picture } = req.body;
@@ -321,13 +459,306 @@ app.patch('/api/orders/:id/rate', (req, res) => {
   const { id } = req.params;
 
   db.run(`UPDATE orders SET rating = ?, review = ? WHERE id = ?`, [rating, review, id], function(err) {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    if (this.changes === 0) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Order not found' });
+    
+    // Also sync to reviews table
+    db.get('SELECT * FROM orders WHERE id = ?', [id], (err, order) => {
+      if (order && !err) {
+        try {
+          const details = JSON.parse(order.deliveryDetails);
+          const customerName = details.name || 'Anonymous';
+          db.run(
+            `INSERT INTO reviews (customer_name, rating, text, is_featured, order_id) VALUES (?, ?, ?, 0, ?)
+             ON CONFLICT(order_id) DO UPDATE SET rating = excluded.rating, text = excluded.text`,
+            [customerName, rating, review, id]
+          );
+        } catch(e) {}
+      }
+    });
+
     res.json({ message: 'Order rated successfully', id, rating, review });
+  });
+});
+
+// OFFERS API ROUTES
+app.get('/api/offers', (req, res) => {
+  db.all('SELECT * FROM offers ORDER BY valid_until DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/offers', (req, res) => {
+  const { code, event_name, discount_percent, valid_until } = req.body;
+  if (!code || !event_name || discount_percent == null || !valid_until) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  
+  db.run(`INSERT INTO offers (code, event_name, discount_percent, valid_until) VALUES (?, ?, ?, ?)`, 
+    [code, event_name, discount_percent, valid_until], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.status(201).json({ message: 'Offer created', id: this.lastID });
+  });
+});
+
+app.put('/api/offers/:id', (req, res) => {
+  const { id } = req.params;
+  const { code, event_name, discount_percent, valid_until } = req.body;
+  
+  db.run(`UPDATE offers SET code = ?, event_name = ?, discount_percent = ?, valid_until = ? WHERE id = ?`,
+    [code, event_name, discount_percent, valid_until, id], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Offer not found' });
+      res.json({ message: 'Offer updated successfully' });
+  });
+});
+
+app.delete('/api/offers/:id', (req, res) => {
+  const { id } = req.params;
+  db.run(`DELETE FROM offers WHERE id = ?`, [id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Offer not found' });
+    res.json({ message: 'Offer deleted successfully' });
+  });
+});
+
+// SETTINGS API ROUTES
+app.get('/api/settings', (req, res) => {
+  db.all('SELECT * FROM settings', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/settings', (req, res) => {
+  const { key, value } = req.body;
+  db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`, [key, value], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Setting updated successfully' });
+  });
+});
+
+// HUBS API ROUTES
+app.get('/api/hubs', (req, res) => {
+  db.all('SELECT * FROM hubs ORDER BY id DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/hubs', (req, res) => {
+  const { name, lat, lng, radius_km, is_active } = req.body;
+  if (!name || lat == null || lng == null || radius_km == null) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  
+  db.run(`INSERT INTO hubs (name, lat, lng, radius_km, is_active) VALUES (?, ?, ?, ?, ?)`, 
+    [name, lat, lng, radius_km, is_active ? 1 : 0], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.status(201).json({ message: 'Hub created', id: this.lastID });
+  });
+});
+
+app.put('/api/hubs/:id', (req, res) => {
+  const { id } = req.params;
+  const { name, lat, lng, radius_km, is_active } = req.body;
+  
+  db.run(`UPDATE hubs SET name = ?, lat = ?, lng = ?, radius_km = ?, is_active = ? WHERE id = ?`,
+    [name, lat, lng, radius_km, is_active ? 1 : 0, id], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Hub not found' });
+      res.json({ message: 'Hub updated successfully' });
+  });
+});
+
+app.delete('/api/hubs/:id', (req, res) => {
+  const { id } = req.params;
+  db.run(`DELETE FROM hubs WHERE id = ?`, [id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Hub not found' });
+    res.json({ message: 'Hub deleted successfully' });
+  });
+});
+
+// ANNOUNCEMENTS API ROUTES
+app.get('/api/announcements', (req, res) => {
+  db.all('SELECT * FROM announcements', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/announcements', (req, res) => {
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: 'Missing announcement text' });
+  
+  db.run(`INSERT INTO announcements (text) VALUES (?)`, [text], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.status(201).json({ message: 'Announcement created', id: this.lastID });
+  });
+});
+
+app.put('/api/announcements/:id', (req, res) => {
+  const { id } = req.params;
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: 'Missing announcement text' });
+  
+  db.run(`UPDATE announcements SET text = ? WHERE id = ?`, [text, id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Announcement not found' });
+    res.json({ message: 'Announcement updated successfully' });
+  });
+});
+
+app.delete('/api/announcements/:id', (req, res) => {
+  const { id } = req.params;
+  db.run(`DELETE FROM announcements WHERE id = ?`, [id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Announcement not found' });
+    res.json({ message: 'Announcement deleted successfully' });
+  });
+});
+
+// REVIEWS API ROUTES
+app.get('/api/reviews', (req, res) => {
+  db.all('SELECT * FROM reviews ORDER BY id DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.get('/api/reviews/featured', (req, res) => {
+  db.all('SELECT * FROM reviews WHERE is_featured = 1 ORDER BY id DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/reviews', (req, res) => {
+  const { customer_name, rating, text, is_featured } = req.body;
+  db.run(
+    `INSERT INTO reviews (customer_name, rating, text, is_featured) VALUES (?, ?, ?, ?)`,
+    [customer_name, rating, text, is_featured ? 1 : 0],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.status(201).json({ message: 'Review created', id: this.lastID });
+    }
+  );
+});
+
+app.put('/api/reviews/:id', (req, res) => {
+  const { id } = req.params;
+  const { customer_name, rating, text, is_featured } = req.body;
+  db.run(
+    `UPDATE reviews SET customer_name = ?, rating = ?, text = ?, is_featured = ? WHERE id = ?`,
+    [customer_name, rating, text, is_featured ? 1 : 0, id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Review not found' });
+      res.json({ message: 'Review updated successfully' });
+    }
+  );
+});
+
+app.delete('/api/reviews/:id', (req, res) => {
+  const { id } = req.params;
+  db.run(`DELETE FROM reviews WHERE id = ?`, [id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Review not found' });
+    res.json({ message: 'Review deleted successfully' });
+  });
+});
+
+// BANNERS API ROUTES
+app.get('/api/banners', (req, res) => {
+  db.all('SELECT * FROM banners ORDER BY id DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.get('/api/banners/active', (req, res) => {
+  db.all('SELECT * FROM banners WHERE is_approved = 1 ORDER BY id DESC', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/banners', upload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Image is required' });
+  
+  const image = `/uploads/${req.file.filename}`;
+  db.run(`INSERT INTO banners (image, is_approved) VALUES (?, 0)`, [image], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.status(201).json({ message: 'Banner uploaded', id: this.lastID, image });
+  });
+});
+
+app.put('/api/banners/:id', (req, res) => {
+  const { id } = req.params;
+  const { is_approved } = req.body;
+  db.run(`UPDATE banners SET is_approved = ? WHERE id = ?`, [is_approved ? 1 : 0, id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Banner not found' });
+    res.json({ message: 'Banner updated successfully' });
+  });
+});
+
+app.delete('/api/banners/:id', (req, res) => {
+  const { id } = req.params;
+  db.run(`DELETE FROM banners WHERE id = ?`, [id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Banner not found' });
+    res.json({ message: 'Banner deleted successfully' });
+  });
+});
+
+// --- Notifications API ---
+
+// Get all notifications (Admin)
+app.get('/api/admin/notifications', (req, res) => {
+  db.all('SELECT * FROM notifications ORDER BY created_at DESC', (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// Get active notifications (User)
+app.get('/api/notifications', (req, res) => {
+  db.all('SELECT * FROM notifications WHERE is_active = 1 ORDER BY created_at DESC', (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// Create notification (Admin)
+app.post('/api/admin/notifications', (req, res) => {
+  const { text, is_active } = req.body;
+  db.run(`INSERT INTO notifications (text, is_active) VALUES (?, ?)`, 
+    [text, is_active ? 1 : 0], 
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, text, is_active: is_active ? 1 : 0 });
+  });
+});
+
+// Update notification (Admin)
+app.put('/api/admin/notifications/:id', (req, res) => {
+  const { text, is_active } = req.body;
+  db.run(`UPDATE notifications SET text = ?, is_active = ? WHERE id = ?`, 
+    [text, is_active ? 1 : 0, req.params.id], 
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: req.params.id, text, is_active: is_active ? 1 : 0 });
+  });
+});
+
+// Delete notification (Admin)
+app.delete('/api/admin/notifications/:id', (req, res) => {
+  db.run(`DELETE FROM notifications WHERE id = ?`, [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
   });
 });
 
@@ -435,6 +866,64 @@ app.put('/api/products/:id', upload.single('image'), (req, res) => {
 // Delete product
 app.delete('/api/products/:id', (req, res) => {
   db.run(`DELETE FROM products WHERE id = ?`, [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// --- DEALS OF THE DAY API ---
+
+// Get all deals
+app.get('/api/deals', (req, res) => {
+  db.all(`SELECT * FROM deals_of_the_day ORDER BY id DESC`, [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// Create deal
+app.post('/api/deals', upload.single('image'), (req, res) => {
+  db.get('SELECT COUNT(*) as count FROM deals_of_the_day', (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (row.count >= 10) return res.status(400).json({ error: 'Maximum 10 deals allowed' });
+
+    const { name, quantity, currentPrice, cutPrice, rating } = req.body;
+    const image = req.file ? `/uploads/${req.file.filename}` : '';
+    
+    db.run(`INSERT INTO deals_of_the_day (name, quantity, currentPrice, cutPrice, rating, image) VALUES (?, ?, ?, ?, ?, ?)`, 
+      [name, quantity, currentPrice, cutPrice, rating, image], 
+      function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ id: this.lastID, name, quantity, currentPrice, cutPrice, rating, image });
+    });
+  });
+});
+
+// Update deal
+app.put('/api/deals/:id', upload.single('image'), (req, res) => {
+  const { name, quantity, currentPrice, cutPrice, rating } = req.body;
+  
+  if (req.file) {
+    const image = `/uploads/${req.file.filename}`;
+    db.run(`UPDATE deals_of_the_day SET name = ?, quantity = ?, currentPrice = ?, cutPrice = ?, rating = ?, image = ? WHERE id = ?`, 
+      [name, quantity, currentPrice, cutPrice, rating, image, req.params.id], 
+      function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ id: req.params.id, name, quantity, currentPrice, cutPrice, rating, image });
+    });
+  } else {
+    db.run(`UPDATE deals_of_the_day SET name = ?, quantity = ?, currentPrice = ?, cutPrice = ?, rating = ? WHERE id = ?`, 
+      [name, quantity, currentPrice, cutPrice, rating, req.params.id], 
+      function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ id: req.params.id, name, quantity, currentPrice, cutPrice, rating });
+    });
+  }
+});
+
+// Delete deal
+app.delete('/api/deals/:id', (req, res) => {
+  db.run(`DELETE FROM deals_of_the_day WHERE id = ?`, [req.params.id], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
   });
