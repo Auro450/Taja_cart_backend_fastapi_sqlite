@@ -128,6 +128,8 @@ const db = new sqlite3.Database(dbPath, (err) => {
     )`, () => {
       // Initialize FIRST20 toggle if not exists
       db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('FIRST20_ACTIVE', 'true')`);
+      db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('MIN_ORDER_FOR_FREE_DELIVERY', '99')`);
+      db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('DELIVERY_CHARGE', '10')`);
     });
 
     // Hubs Table
