@@ -773,3 +773,52 @@ def delete_deal(deal_id: int, db: sqlite3.Connection = Depends(get_db)):
     cursor.execute("DELETE FROM deals_of_the_day WHERE id = ?", (deal_id,))
     db.commit()
     return {"success": True}
+
+# --- UNIFIED HOME FEED API ---
+
+@app.get("/api/home-feed")
+def get_home_feed(db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    
+    cursor.execute("SELECT * FROM categories ORDER BY id ASC")
+    categories = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM products ORDER BY id DESC")
+    products = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM deals_of_the_day ORDER BY id DESC")
+    deals = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM offers ORDER BY valid_until DESC")
+    offers = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM settings")
+    settings = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM announcements")
+    announcements = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM reviews WHERE is_featured = 1 ORDER BY id DESC")
+    reviews = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM banners WHERE is_approved = 1 ORDER BY id DESC")
+    banners = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM hubs ORDER BY id DESC")
+    hubs = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM notifications WHERE is_active = 1 ORDER BY created_at DESC")
+    notifications = cursor.fetchall()
+    
+    return {
+        "categories": categories,
+        "products": products,
+        "deals": deals,
+        "offers": offers,
+        "settings": settings,
+        "announcements": announcements,
+        "reviews": reviews,
+        "banners": banners,
+        "hubs": hubs,
+        "notifications": notifications
+    }
