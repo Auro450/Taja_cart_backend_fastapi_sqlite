@@ -163,6 +163,12 @@ def init_db():
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )''')
 
+    # Settings Table
+    c.execute('''CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )''')
+
     # Seed Categories and Products if empty
     c.execute("SELECT COUNT(*) as count FROM categories")
     if c.fetchone()['count'] == 0:
