@@ -130,7 +130,12 @@ async def create_order(request: Request, db: sqlite3.Connection = Depends(get_db
     
     # Save the order notification to the admin alerts database
     customer_name = deliveryDetails.get("name", "A customer")
-    customer_addr = deliveryDetails.get("address", "an unknown address")
+    customer_addr = deliveryDetails.get("address")
+    if not customer_addr:
+        street = deliveryDetails.get("street", "")
+        city = deliveryDetails.get("city", "")
+        customer_addr = f"{street}, {city}".strip(", ") or "an unknown address"
+        
     alert_text = f"{customer_name} from {customer_addr} has placed an order of ₹{grandTotal}"
     cursor.execute("INSERT INTO admin_alerts (text) VALUES (?)", (alert_text,))
     
@@ -148,7 +153,11 @@ async def create_order(request: Request, db: sqlite3.Connection = Depends(get_db
                 from pywebpush import webpush, WebPushException
                 
                 customer_name = deliveryDetails.get("name", "A customer")
-                customer_addr = deliveryDetails.get("address", "an unknown address")
+                customer_addr = deliveryDetails.get("address")
+                if not customer_addr:
+                    street = deliveryDetails.get("street", "")
+                    city = deliveryDetails.get("city", "")
+                    customer_addr = f"{street}, {city}".strip(", ") or "an unknown address"
                 payload = json.dumps({
                     "title": "New Order Placed! 🛍️",
                     "body": f"{customer_name} from {customer_addr} has placed an order of ₹{grandTotal}",
