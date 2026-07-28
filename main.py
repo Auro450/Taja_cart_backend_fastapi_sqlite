@@ -43,6 +43,29 @@ def on_startup():
                 print(f"Error saving VAPID keys: {e}")
         break
 
+# --- ADMIN IN-APP NOTIFICATIONS API ---
+
+@app.get("/api/admin/alerts")
+def get_admin_alerts(db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM admin_alerts ORDER BY created_at DESC")
+    alerts = [dict(row) for row in cursor.fetchall()]
+    return alerts
+
+@app.patch("/api/admin/alerts/{alert_id}/read")
+def mark_admin_alert_read(alert_id: int, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("UPDATE admin_alerts SET is_read = 1 WHERE id = ?", (alert_id,))
+    db.commit()
+    return {"message": "Alert marked as read"}
+
+@app.patch("/api/admin/alerts/read_all")
+def mark_all_admin_alerts_read(db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("UPDATE admin_alerts SET is_read = 1 WHERE is_read = 0")
+    db.commit()
+    return {"message": "All alerts marked as read"}
+
 # --- ADMIN PUSH NOTIFICATIONS API ---
 
 @app.get("/api/admin/vapid_public_key")
@@ -104,6 +127,13 @@ async def create_order(request: Request, db: sqlite3.Connection = Depends(get_db
         "INSERT INTO orders (id, date, items, grandTotal, deliveryDetails, userEmail, userPhone, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (order_id, date, json.dumps(items), grandTotal, json.dumps(deliveryDetails), userEmail, userPhone, status)
     )
+    
+    # Save the order notification to the admin alerts database
+    customer_name = deliveryDetails.get("name", "A customer")
+    customer_addr = deliveryDetails.get("address", "an unknown address")
+    alert_text = f"{customer_name} from {customer_addr} has placed an order of ₹{grandTotal}"
+    cursor.execute("INSERT INTO admin_alerts (text) VALUES (?)", (alert_text,))
+    
     db.commit()
 
     # Trigger Push Notification to Admins

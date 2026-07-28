@@ -169,6 +169,14 @@ def init_db():
       value TEXT NOT NULL
     )''')
 
+    # Admin Alerts Table
+    c.execute('''CREATE TABLE IF NOT EXISTS admin_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      text TEXT NOT NULL,
+      is_read BOOLEAN DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )''')
+
     # Seed Categories and Products if empty
     c.execute("SELECT COUNT(*) as count FROM categories")
     if c.fetchone()['count'] == 0:
