@@ -28,19 +28,20 @@ def on_startup():
     init_db()
     
     # Initialize VAPID keys if not present
-    conn = next(get_db())
-    c = conn.cursor()
-    c.execute("SELECT value FROM settings WHERE key='VAPID_PRIVATE_KEY'")
-    if not c.fetchone():
-        try:
-            vapid_private_key = "pNgFKjIiXbcgsk10lArL6P_s4djzrZCuJtM8fxUt1vA"
-            vapid_public_key = "BNPAHBlQULCX22LDEDAVz0Xp19-jWG0WCdAlxFtM6jyxoPh77U1yBEf9fOWAYhX2cKAp2v-oH5z3B9ObVUu5G9k"
-            c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('VAPID_PRIVATE_KEY', ?)", (vapid_private_key,))
-            c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('VAPID_PUBLIC_KEY', ?)", (vapid_public_key,))
-            conn.commit()
-            print("Generated and saved new VAPID keys.")
-        except Exception as e:
-            print(f"Error saving VAPID keys: {e}")
+    for conn in get_db():
+        c = conn.cursor()
+        c.execute("SELECT value FROM settings WHERE key='VAPID_PRIVATE_KEY'")
+        if not c.fetchone():
+            try:
+                vapid_private_key = "pNgFKjIiXbcgsk10lArL6P_s4djzrZCuJtM8fxUt1vA"
+                vapid_public_key = "BNPAHBlQULCX22LDEDAVz0Xp19-jWG0WCdAlxFtM6jyxoPh77U1yBEf9fOWAYhX2cKAp2v-oH5z3B9ObVUu5G9k"
+                c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('VAPID_PRIVATE_KEY', ?)", (vapid_private_key,))
+                c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('VAPID_PUBLIC_KEY', ?)", (vapid_public_key,))
+                conn.commit()
+                print("Generated and saved new VAPID keys.")
+            except Exception as e:
+                print(f"Error saving VAPID keys: {e}")
+        break
 
 # --- ADMIN PUSH NOTIFICATIONS API ---
 
