@@ -26,6 +26,52 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 @app.on_event("startup")
 def on_startup():
     init_db()
+    
+    # Initialize VAPID keys if not present
+    conn = next(get_db())
+    c = conn.cursor()
+    c.execute("SELECT value FROM settings WHERE key='VAPID_PRIVATE_KEY'")
+    if not c.fetchone():
+        try:
+            vapid_private_key = "pNgFKjIiXbcgsk10lArL6P_s4djzrZCuJtM8fxUt1vA"
+            vapid_public_key = "BNPAHBlQULCX22LDEDAVz0Xp19-jWG0WCdAlxFtM6jyxoPh77U1yBEf9fOWAYhX2cKAp2v-oH5z3B9ObVUu5G9k"
+            c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('VAPID_PRIVATE_KEY', ?)", (vapid_private_key,))
+            c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('VAPID_PUBLIC_KEY', ?)", (vapid_public_key,))
+            conn.commit()
+            print("Generated and saved new VAPID keys.")
+        except Exception as e:
+            print(f"Error saving VAPID keys: {e}")
+
+# --- ADMIN PUSH NOTIFICATIONS API ---
+
+@app.get("/api/admin/vapid_public_key")
+def get_vapid_public_key(db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT value FROM settings WHERE key='VAPID_PUBLIC_KEY'")
+    row = cursor.fetchone()
+    if row:
+        return {"public_key": row["value"]}
+    raise HTTPException(status_code=404, detail="VAPID keys not generated yet")
+
+@app.post("/api/admin/subscribe")
+async def admin_subscribe(request: Request, db: sqlite3.Connection = Depends(get_db)):
+    data = await request.json()
+    endpoint = data.get("endpoint")
+    keys = data.get("keys", {})
+    p256dh = keys.get("p256dh")
+    auth = keys.get("auth")
+
+    if not endpoint or not p256dh or not auth:
+        raise HTTPException(status_code=400, detail="Missing subscription info")
+
+    cursor = db.cursor()
+    cursor.execute('''
+        INSERT INTO admin_subscriptions (endpoint, p256dh, auth) 
+        VALUES (?, ?, ?)
+        ON CONFLICT(endpoint) DO UPDATE SET p256dh=excluded.p256dh, auth=excluded.auth
+    ''', (endpoint, p256dh, auth))
+    db.commit()
+    return {"message": "Subscription saved"}
 
 def save_upload_file(upload_file: UploadFile) -> str:
     timestamp = int(time.time() * 1000)
@@ -58,6 +104,48 @@ async def create_order(request: Request, db: sqlite3.Connection = Depends(get_db
         (order_id, date, json.dumps(items), grandTotal, json.dumps(deliveryDetails), userEmail, userPhone, status)
     )
     db.commit()
+
+    # Trigger Push Notification to Admins
+    try:
+        cursor.execute("SELECT value FROM settings WHERE key='VAPID_PRIVATE_KEY'")
+        priv_key_row = cursor.fetchone()
+        if priv_key_row:
+            vapid_private_key = priv_key_row["value"]
+            cursor.execute("SELECT * FROM admin_subscriptions")
+            subs = cursor.fetchall()
+            if subs:
+                from pywebpush import webpush, WebPushException
+                
+                customer_name = deliveryDetails.get("name", "A customer")
+                customer_addr = deliveryDetails.get("address", "an unknown address")
+                payload = json.dumps({
+                    "title": "New Order Placed! 🛍️",
+                    "body": f"{customer_name} from {customer_addr} has placed an order of ₹{grandTotal}",
+                    "url": "/admin/orders?status=Placed"
+                })
+                
+                for sub in subs:
+                    try:
+                        webpush(
+                            subscription_info={
+                                "endpoint": sub["endpoint"],
+                                "keys": {
+                                    "p256dh": sub["p256dh"],
+                                    "auth": sub["auth"]
+                                }
+                            },
+                            data=payload,
+                            vapid_private_key=vapid_private_key,
+                            vapid_claims={"sub": "mailto:admin@tajacart.in"}
+                        )
+                    except WebPushException as ex:
+                        if ex.response and ex.response.status_code in (404, 410):
+                            cursor.execute("DELETE FROM admin_subscriptions WHERE id=?", (sub["id"],))
+                            db.commit()
+                        print(f"WebPush Error: {ex}")
+    except Exception as e:
+        print(f"Failed to send push notifications: {e}")
+
     return {"message": "Order created successfully", "id": order_id}
 
 @app.get("/api/orders")

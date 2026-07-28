@@ -154,6 +154,15 @@ def init_db():
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )''')
 
+    # Admin Subscriptions Table
+    c.execute('''CREATE TABLE IF NOT EXISTS admin_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      endpoint TEXT UNIQUE NOT NULL,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )''')
+
     # Seed Categories and Products if empty
     c.execute("SELECT COUNT(*) as count FROM categories")
     if c.fetchone()['count'] == 0:
