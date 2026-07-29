@@ -77,6 +77,7 @@ def init_db():
       cutPrice REAL NOT NULL,
       rating REAL NOT NULL,
       image TEXT,
+      in_stock BOOLEAN DEFAULT 1,
       FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE
     )''')
 
@@ -88,7 +89,8 @@ def init_db():
       currentPrice REAL NOT NULL,
       cutPrice REAL NOT NULL,
       rating REAL NOT NULL,
-      image TEXT
+      image TEXT,
+      in_stock BOOLEAN DEFAULT 1
     )''')
 
     # Offers Table
@@ -263,6 +265,18 @@ def init_db():
                     (category_id, p['name'], p['quantity'], p['currentPrice'], cutPrice, rating, p['image'])
                 )
     
+
+    # Safe migrations for existing databases
+    try:
+        c.execute("ALTER TABLE products ADD COLUMN in_stock BOOLEAN DEFAULT 1")
+    except sqlite3.OperationalError:
+        pass # Column already exists
+    
+    try:
+        c.execute("ALTER TABLE deals_of_the_day ADD COLUMN in_stock BOOLEAN DEFAULT 1")
+    except sqlite3.OperationalError:
+        pass # Column already exists
+
     conn.commit()
     conn.close()
 

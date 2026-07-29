@@ -654,18 +654,19 @@ async def create_product(
     currentPrice: float = Form(...),
     cutPrice: float = Form(...),
     rating: float = Form(...),
+    in_stock: int = Form(1),
     image: Optional[UploadFile] = File(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
     image_url = save_upload_file(image) if image and image.filename else ""
     cursor = db.cursor()
     cursor.execute(
-        "INSERT INTO products (category_id, name, quantity, currentPrice, cutPrice, rating, image) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (category_id, name, quantity, currentPrice, cutPrice, rating, image_url)
+        "INSERT INTO products (category_id, name, quantity, currentPrice, cutPrice, rating, in_stock, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (category_id, name, quantity, currentPrice, cutPrice, rating, in_stock, image_url)
     )
     db.commit()
     return {"id": cursor.lastrowid, "category_id": category_id, "name": name, "quantity": quantity, 
-            "currentPrice": currentPrice, "cutPrice": cutPrice, "rating": rating, "image": image_url}
+            "currentPrice": currentPrice, "cutPrice": cutPrice, "rating": rating, "in_stock": in_stock, "image": image_url}
 
 @app.put("/api/products/{product_id}")
 async def update_product(
@@ -676,6 +677,7 @@ async def update_product(
     currentPrice: float = Form(...),
     cutPrice: float = Form(...),
     rating: float = Form(...),
+    in_stock: int = Form(1),
     image: Optional[UploadFile] = File(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -683,20 +685,20 @@ async def update_product(
     if image and image.filename:
         image_url = save_upload_file(image)
         cursor.execute(
-            "UPDATE products SET category_id = ?, name = ?, quantity = ?, currentPrice = ?, cutPrice = ?, rating = ?, image = ? WHERE id = ?",
-            (category_id, name, quantity, currentPrice, cutPrice, rating, image_url, product_id)
+            "UPDATE products SET category_id = ?, name = ?, quantity = ?, currentPrice = ?, cutPrice = ?, rating = ?, in_stock = ?, image = ? WHERE id = ?",
+            (category_id, name, quantity, currentPrice, cutPrice, rating, in_stock, image_url, product_id)
         )
         db.commit()
         return {"id": product_id, "category_id": category_id, "name": name, "quantity": quantity, 
-                "currentPrice": currentPrice, "cutPrice": cutPrice, "rating": rating, "image": image_url}
+                "currentPrice": currentPrice, "cutPrice": cutPrice, "rating": rating, "in_stock": in_stock, "image": image_url}
     else:
         cursor.execute(
-            "UPDATE products SET category_id = ?, name = ?, quantity = ?, currentPrice = ?, cutPrice = ?, rating = ? WHERE id = ?",
-            (category_id, name, quantity, currentPrice, cutPrice, rating, product_id)
+            "UPDATE products SET category_id = ?, name = ?, quantity = ?, currentPrice = ?, cutPrice = ?, rating = ?, in_stock = ? WHERE id = ?",
+            (category_id, name, quantity, currentPrice, cutPrice, rating, in_stock, product_id)
         )
         db.commit()
         return {"id": product_id, "category_id": category_id, "name": name, "quantity": quantity, 
-                "currentPrice": currentPrice, "cutPrice": cutPrice, "rating": rating}
+                "currentPrice": currentPrice, "cutPrice": cutPrice, "rating": rating, "in_stock": in_stock}
 
 @app.delete("/api/products/{product_id}")
 def delete_product(product_id: int, db: sqlite3.Connection = Depends(get_db)):
@@ -720,6 +722,7 @@ async def create_deal(
     currentPrice: float = Form(...),
     cutPrice: float = Form(...),
     rating: float = Form(...),
+    in_stock: int = Form(1),
     image: Optional[UploadFile] = File(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -730,12 +733,12 @@ async def create_deal(
 
     image_url = save_upload_file(image) if image and image.filename else ""
     cursor.execute(
-        "INSERT INTO deals_of_the_day (name, quantity, currentPrice, cutPrice, rating, image) VALUES (?, ?, ?, ?, ?, ?)",
-        (name, quantity, currentPrice, cutPrice, rating, image_url)
+        "INSERT INTO deals_of_the_day (name, quantity, currentPrice, cutPrice, rating, in_stock, image) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, quantity, currentPrice, cutPrice, rating, in_stock, image_url)
     )
     db.commit()
     return {"id": cursor.lastrowid, "name": name, "quantity": quantity, 
-            "currentPrice": currentPrice, "cutPrice": cutPrice, "rating": rating, "image": image_url}
+            "currentPrice": currentPrice, "cutPrice": cutPrice, "rating": rating, "in_stock": in_stock, "image": image_url}
 
 @app.put("/api/deals/{deal_id}")
 async def update_deal(
@@ -745,6 +748,7 @@ async def update_deal(
     currentPrice: float = Form(...),
     cutPrice: float = Form(...),
     rating: float = Form(...),
+    in_stock: int = Form(1),
     image: Optional[UploadFile] = File(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
@@ -752,20 +756,20 @@ async def update_deal(
     if image and image.filename:
         image_url = save_upload_file(image)
         cursor.execute(
-            "UPDATE deals_of_the_day SET name = ?, quantity = ?, currentPrice = ?, cutPrice = ?, rating = ?, image = ? WHERE id = ?",
-            (name, quantity, currentPrice, cutPrice, rating, image_url, deal_id)
+            "UPDATE deals_of_the_day SET name = ?, quantity = ?, currentPrice = ?, cutPrice = ?, rating = ?, in_stock = ?, image = ? WHERE id = ?",
+            (name, quantity, currentPrice, cutPrice, rating, in_stock, image_url, deal_id)
         )
         db.commit()
         return {"id": deal_id, "name": name, "quantity": quantity, 
-                "currentPrice": currentPrice, "cutPrice": cutPrice, "rating": rating, "image": image_url}
+                "currentPrice": currentPrice, "cutPrice": cutPrice, "rating": rating, "in_stock": in_stock, "image": image_url}
     else:
         cursor.execute(
-            "UPDATE deals_of_the_day SET name = ?, quantity = ?, currentPrice = ?, cutPrice = ?, rating = ? WHERE id = ?",
-            (name, quantity, currentPrice, cutPrice, rating, deal_id)
+            "UPDATE deals_of_the_day SET name = ?, quantity = ?, currentPrice = ?, cutPrice = ?, rating = ?, in_stock = ? WHERE id = ?",
+            (name, quantity, currentPrice, cutPrice, rating, in_stock, deal_id)
         )
         db.commit()
         return {"id": deal_id, "name": name, "quantity": quantity, 
-                "currentPrice": currentPrice, "cutPrice": cutPrice, "rating": rating}
+                "currentPrice": currentPrice, "cutPrice": cutPrice, "rating": rating, "in_stock": in_stock}
 
 @app.delete("/api/deals/{deal_id}")
 def delete_deal(deal_id: int, db: sqlite3.Connection = Depends(get_db)):
