@@ -611,7 +611,7 @@ def get_categories(db: sqlite3.Connection = Depends(get_db)):
 
 @app.post("/api/categories")
 async def create_category(name: str = Form(...), image: Optional[UploadFile] = File(None), db: sqlite3.Connection = Depends(get_db)):
-    image_url = save_upload_file(image) if image else ""
+    image_url = save_upload_file(image) if image and image.filename else ""
     cursor = db.cursor()
     cursor.execute("INSERT INTO categories (name, image) VALUES (?, ?)", (name, image_url))
     db.commit()
@@ -620,7 +620,7 @@ async def create_category(name: str = Form(...), image: Optional[UploadFile] = F
 @app.put("/api/categories/{category_id}")
 async def update_category(category_id: int, name: str = Form(...), image: Optional[UploadFile] = File(None), db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
-    if image:
+    if image and image.filename:
         image_url = save_upload_file(image)
         cursor.execute("UPDATE categories SET name = ?, image = ? WHERE id = ?", (name, image_url, category_id))
         db.commit()
@@ -657,7 +657,7 @@ async def create_product(
     image: Optional[UploadFile] = File(None),
     db: sqlite3.Connection = Depends(get_db)
 ):
-    image_url = save_upload_file(image) if image else ""
+    image_url = save_upload_file(image) if image and image.filename else ""
     cursor = db.cursor()
     cursor.execute(
         "INSERT INTO products (category_id, name, quantity, currentPrice, cutPrice, rating, image) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -680,7 +680,7 @@ async def update_product(
     db: sqlite3.Connection = Depends(get_db)
 ):
     cursor = db.cursor()
-    if image:
+    if image and image.filename:
         image_url = save_upload_file(image)
         cursor.execute(
             "UPDATE products SET category_id = ?, name = ?, quantity = ?, currentPrice = ?, cutPrice = ?, rating = ?, image = ? WHERE id = ?",
@@ -728,7 +728,7 @@ async def create_deal(
     if cursor.fetchone()['count'] >= 10:
         raise HTTPException(status_code=400, detail="Maximum 10 deals allowed")
 
-    image_url = save_upload_file(image) if image else ""
+    image_url = save_upload_file(image) if image and image.filename else ""
     cursor.execute(
         "INSERT INTO deals_of_the_day (name, quantity, currentPrice, cutPrice, rating, image) VALUES (?, ?, ?, ?, ?, ?)",
         (name, quantity, currentPrice, cutPrice, rating, image_url)
@@ -749,7 +749,7 @@ async def update_deal(
     db: sqlite3.Connection = Depends(get_db)
 ):
     cursor = db.cursor()
-    if image:
+    if image and image.filename:
         image_url = save_upload_file(image)
         cursor.execute(
             "UPDATE deals_of_the_day SET name = ?, quantity = ?, currentPrice = ?, cutPrice = ?, rating = ?, image = ? WHERE id = ?",
