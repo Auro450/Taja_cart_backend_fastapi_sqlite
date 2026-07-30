@@ -178,6 +178,13 @@ def init_db():
       is_read BOOLEAN DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )''')
+    
+    # Device Tokens Table (for mobile push notifications)
+    c.execute('''CREATE TABLE IF NOT EXISTS device_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token TEXT UNIQUE NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )''')
 
     # Seed Categories and Products if empty
     c.execute("SELECT COUNT(*) as count FROM categories")

@@ -8,8 +8,21 @@ from fastapi.staticfiles import StaticFiles
 from database import get_db, init_db
 import sqlite3
 import shutil
+import firebase_admin
+from firebase_admin import credentials, messaging
 
 app = FastAPI()
+
+# Initialize Firebase Admin SDK
+try:
+    # This will use the GOOGLE_APPLICATION_CREDENTIALS environment variable
+    # Or default service account if running on GCP. 
+    # Otherwise, you need to provide credentials.Certificate("path/to/serviceAccountKey.json")
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app()
+    print("Firebase Admin SDK initialized successfully.")
+except Exception as e:
+    print(f"Failed to initialize Firebase Admin SDK. Push notifications will not work. Error: {e}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -580,7 +593,41 @@ async def create_notification(request: Request, db: sqlite3.Connection = Depends
     cursor = db.cursor()
     cursor.execute("INSERT INTO notifications (text, is_active) VALUES (?, ?)", (data.get("text"), 1 if data.get("is_active") else 0))
     db.commit()
+    
+    # Send FCM push notification to all devices if it is active
+    if data.get("is_active"):
+        try:
+            cursor.execute("SELECT token FROM device_tokens")
+            tokens = [row['token'] for row in cursor.fetchall()]
+            if tokens and firebase_admin._apps:
+                message = messaging.MulticastMessage(
+                    notification=messaging.Notification(
+                        title="Taja Cart Update",
+                        body=data.get("text")
+                    ),
+                    tokens=tokens,
+                )
+                response = messaging.send_each_for_multicast(message)
+                print(f"Successfully sent {response.success_count} FCM messages")
+        except Exception as e:
+            print(f"Failed to send FCM push notification: {e}")
+
     return {"id": cursor.lastrowid, "text": data.get("text"), "is_active": 1 if data.get("is_active") else 0}
+
+@app.post("/api/device-tokens")
+async def register_device_token(request: Request, db: sqlite3.Connection = Depends(get_db)):
+    data = await request.json()
+    token = data.get("token")
+    if not token:
+        raise HTTPException(status_code=400, detail="Token is required")
+    
+    cursor = db.cursor()
+    try:
+        cursor.execute("INSERT OR IGNORE INTO device_tokens (token) VALUES (?)", (token,))
+        db.commit()
+        return {"success": True, "message": "Token registered"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/api/admin/notifications/{notif_id}")
 async def update_notification(notif_id: int, request: Request, db: sqlite3.Connection = Depends(get_db)):
