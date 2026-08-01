@@ -183,8 +183,15 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS device_tokens (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       token TEXT UNIQUE NOT NULL,
+      role TEXT DEFAULT 'customer',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )''')
+    
+    # Add role column if it doesn't exist (for existing databases)
+    try:
+        c.execute("ALTER TABLE device_tokens ADD COLUMN role TEXT DEFAULT 'customer'")
+    except sqlite3.OperationalError:
+        pass # Column already exists
 
     # Seed Categories and Products if empty
     c.execute("SELECT COUNT(*) as count FROM categories")

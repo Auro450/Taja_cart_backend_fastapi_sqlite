@@ -154,6 +154,26 @@ async def create_order(request: Request, db: sqlite3.Connection = Depends(get_db
 
     # Trigger Push Notification to Admins
     try:
+        # 1. FCM Push Notifications (For Admin Mobile App)
+        try:
+            import firebase_admin
+            from firebase_admin import messaging
+            cursor.execute("SELECT token FROM device_tokens WHERE role='admin'")
+            admin_tokens = [row['token'] for row in cursor.fetchall()]
+            if admin_tokens and firebase_admin._apps:
+                fcm_message = messaging.MulticastMessage(
+                    notification=messaging.Notification(
+                        title="New Order Placed! 🛍️",
+                        body=f"{customer_name} from {customer_addr} has placed an order of ₹{grandTotal}"
+                    ),
+                    tokens=admin_tokens,
+                )
+                response = messaging.send_each_for_multicast(fcm_message)
+                print(f"Successfully sent {response.success_count} FCM messages to admin app")
+        except Exception as e:
+            print(f"Failed to send FCM push notification to admin app: {e}")
+
+        # 2. Web Push Notifications (For Admin Web Dashboard)
         cursor.execute("SELECT value FROM settings WHERE key='VAPID_PRIVATE_KEY'")
         priv_key_row = cursor.fetchone()
         if priv_key_row:
@@ -163,10 +183,6 @@ async def create_order(request: Request, db: sqlite3.Connection = Depends(get_db
             if subs:
                 from pywebpush import webpush, WebPushException
                 
-                customer_name = deliveryDetails.get("name", "A customer")
-                customer_addr = deliveryDetails.get("building", "").strip()
-                if not customer_addr:
-                    customer_addr = "an unknown address"
                 payload = json.dumps({
                     "title": "New Order Placed! 🛍️",
                     "body": f"{customer_name} from {customer_addr} has placed an order of ₹{grandTotal}",
@@ -618,12 +634,16 @@ async def create_notification(request: Request, db: sqlite3.Connection = Depends
 async def register_device_token(request: Request, db: sqlite3.Connection = Depends(get_db)):
     data = await request.json()
     token = data.get("token")
+    role = data.get("role", "customer")
     if not token:
         raise HTTPException(status_code=400, detail="Token is required")
     
     cursor = db.cursor()
     try:
-        cursor.execute("INSERT OR IGNORE INTO device_tokens (token) VALUES (?)", (token,))
+        cursor.execute(
+            "INSERT INTO device_tokens (token, role) VALUES (?, ?) ON CONFLICT(token) DO UPDATE SET role=excluded.role",
+            (token, role)
+        )
         db.commit()
         return {"success": True, "message": "Token registered"}
     except Exception as e:
